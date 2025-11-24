@@ -307,13 +307,85 @@ def get_dashboard_data(request):
             # Calculate available buffer = Total Capacity - Allocated
             available_buffer_tb = total_capacity_tb - allocated_total_tb
 
+            # Build hierarchical sunburst data structure
+            # Structure: Pool → Child Pool → Tenant
+            sunburst_data = []
+            for pool_info in pool_data:
+                pname = pool_info['pool']
+                
+                # Get all child pools for this parent pool (exclude Lab Engineering)
+                pool_volumes = StorageData.objects.filter(pool=pname)
+                child_pools_map = {}
+                
+                for volume in pool_volumes:
+                    cpname = volume.child_pool
+                    
+                    # Skip Lab Engineering child pools
+                    if is_lab_engineering(cpname):
+                        continue
+                    
+                    if cpname not in child_pools_map:
+                        child_pools_map[cpname] = {
+                            'name': cpname,
+                            'total_capacity_gb': 0,
+                            'tenants': {}
+                        }
+                    
+                    child_pools_map[cpname]['total_capacity_gb'] += volume.volume_size_gb
+                    
+                    # Extract tenant name from volume name
+                    tenant = volume.volume.split('_')[0] if '_' in volume.volume else volume.volume
+                    
+                    # Skip Lab Engineering tenants
+                    if is_lab_engineering(tenant):
+                        continue
+                    
+                    if tenant not in child_pools_map[cpname]['tenants']:
+                        child_pools_map[cpname]['tenants'][tenant] = 0
+                    
+                    child_pools_map[cpname]['tenants'][tenant] += volume.volume_size_gb
+                
+                # Calculate pool total capacity (sum of all child pools + buffer)
+                pool_total_capacity_gb = sum(v.volume_size_gb for v in StorageData.objects.filter(pool=pname))
+                pool_allocated_gb = sum(cp['total_capacity_gb'] for cp in child_pools_map.values())
+                pool_buffer_gb = pool_total_capacity_gb - pool_allocated_gb
+                
+                # Build child pool array with tenants
+                children = []
+                for cpname, cp_data in child_pools_map.items():
+                    tenant_children = [
+                        {'name': tenant_name, 'value': tenant_gb}
+                        for tenant_name, tenant_gb in cp_data['tenants'].items()
+                    ]
+                    
+                    children.append({
+                        'name': cpname,
+                        'value': cp_data['total_capacity_gb'],
+                        'children': tenant_children
+                    })
+                
+                # Add Buffer as a child pool with empty children
+                if pool_buffer_gb > 0:
+                    children.append({
+                        'name': 'Buffer',
+                        'value': pool_buffer_gb,
+                        'children': []  # Empty layer 3 for buffer
+                    })
+                
+                sunburst_data.append({
+                    'name': pname,
+                    'value': pool_total_capacity_gb,
+                    'children': children
+                })
+
             return Response({
                 'level': 'pools',
                 'total_capacity_tb': total_capacity_tb,  # Includes Lab Engineering child pool
                 'allocated_tb': allocated_total_tb,  # NEW: Excludes Lab Engineering
                 'available_buffer_tb': available_buffer_tb,  # NEW: Calculated buffer
                 'pools': pool_data,
-                'top_tenants': top_tenants
+                'top_tenants': top_tenants,
+                'sunburst_data': sunburst_data  # NEW: Hierarchical data for sunburst chart
             })
 
         # Level 2: Child Pools (pool parameter only)
