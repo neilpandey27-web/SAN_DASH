@@ -857,7 +857,7 @@ const Dashboard = ({ isAdmin, onLogout }) => {
           <Tile>
             <ReactECharts 
               option={donutOption} 
-              style={{ height: '400px', width: '100%' }}
+              style={{ height: '700px', width: '100%' }}
               opts={{ renderer: 'svg' }}
             />
           </Tile>
