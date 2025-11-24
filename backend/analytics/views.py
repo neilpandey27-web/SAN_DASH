@@ -20,6 +20,7 @@ def is_lab_engineering(value):
     - "Lab Engineering" (case-insensitive)
     - "buffer" (case-insensitive)
     - Empty string or whitespace only
+    - "nan" (pandas empty cell placeholder)
     
     These are placeholders for unallocated/buffer capacity, NOT real allocated capacity.
     """
@@ -27,7 +28,7 @@ def is_lab_engineering(value):
         return True
     if isinstance(value, str):
         stripped = value.strip().lower()
-        if stripped == '' or stripped == 'lab engineering' or stripped == 'buffer':
+        if stripped == '' or stripped == 'lab engineering' or stripped == 'buffer' or stripped == 'nan':
             return True
     return False
 
