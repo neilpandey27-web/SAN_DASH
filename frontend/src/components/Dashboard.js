@@ -850,18 +850,10 @@ const Dashboard = ({ isAdmin, onLogout }) => {
       )}
 
       {/* ======================================================================
-          CHARTS ROW (Donut Chart + Bar Chart)
+          LAYER 2: PIE/DONUT CHART - Excludes Lab Engineering
           ====================================================================== */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: level === 'pools' && barOption ? '1fr 1fr' : '1fr',
-        gap: '20px',
-        marginBottom: '20px'
-      }}>
-        {/* ------------------------------------------------------------------
-            DONUT CHART (ECharts) - Excludes Lab Engineering
-            ------------------------------------------------------------------ */}
-        {donutOption && (
+      {donutOption && (
+        <div style={{ marginBottom: '20px' }}>
           <Tile>
             <ReactECharts 
               option={donutOption} 
@@ -869,12 +861,14 @@ const Dashboard = ({ isAdmin, onLogout }) => {
               opts={{ renderer: 'svg' }}
             />
           </Tile>
-        )}
+        </div>
+      )}
 
-        {/* ------------------------------------------------------------------
-            BAR CHART (ECharts - Only on pools level) - Excludes Lab Engineering
-            ------------------------------------------------------------------ */}
-        {level === 'pools' && barOption && (
+      {/* ======================================================================
+          LAYER 3: BAR CHART (Only on pools level) - Excludes Lab Engineering
+          ====================================================================== */}
+      {level === 'pools' && barOption && (
+        <div style={{ marginBottom: '20px' }}>
           <Tile>
             <ReactECharts 
               option={barOption} 
@@ -882,8 +876,8 @@ const Dashboard = ({ isAdmin, onLogout }) => {
               opts={{ renderer: 'svg' }}
             />
           </Tile>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* ======================================================================
           DATA TABLE (Pools, Child Pools, Tenants, or Volumes)
