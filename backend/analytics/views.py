@@ -16,18 +16,19 @@ def is_lab_engineering(value):
     """
     Check if a value represents unallocated capacity placeholder.
     Returns True if value is:
-    - None/blank
+    - None/blank/null
     - "Lab Engineering" (case-insensitive)
     - "buffer" (case-insensitive)
-    - Empty string
+    - Empty string or whitespace only
     
-    These are placeholders for unallocated capacity, NOT real tenants.
+    These are placeholders for unallocated/buffer capacity, NOT real allocated capacity.
     """
-    if not value:
+    if value is None:
         return True
     if isinstance(value, str):
         stripped = value.strip().lower()
-        return stripped == 'lab engineering' or stripped == 'buffer' or stripped == ''
+        if stripped == '' or stripped == 'lab engineering' or stripped == 'buffer':
+            return True
     return False
 
 
@@ -250,16 +251,22 @@ def get_dashboard_data(request):
             total_capacity_tb = sum(v.volume_size_gb for v in all_volumes) / 1000
             
             # Calculate pool data by summing child pools for each parent pool
-            # EXCLUDES Lab Engineering child pools
+            # EXCLUDES Lab Engineering child pools (empty/null/"lab engineering"/"buffer")
             pools = StorageData.objects.values('pool').distinct()
             pool_data = []
+            allocated_total_tb = 0  # Track total allocated (excluding Lab Engineering)
+            
             for pool in pools:
                 pname = pool['pool']
                     
-                # Get all volumes in this parent pool, excluding Lab Engineering child pools
-                volumes = StorageData.objects.filter(pool=pname).exclude(
-                    child_pool__iregex=r'^\s*(lab engineering|buffer)\s*$|^\s*$'
-                )
+                # Get all volumes in this parent pool
+                all_pool_volumes = StorageData.objects.filter(pool=pname)
+                
+                # Filter out Lab Engineering child pools (empty, null, "lab engineering", "buffer")
+                volumes = []
+                for v in all_pool_volumes:
+                    if not is_lab_engineering(v.child_pool):
+                        volumes.append(v)
 
                 total_size_gb = sum(v.volume_size_gb for v in volumes)
                 total_utilized_gb = sum(v.utilized_gb for v in volumes)
@@ -267,21 +274,24 @@ def get_dashboard_data(request):
 
                 # Only add pool to display if it has non-Lab-Engineering capacity
                 if total_size_gb > 0:
+                    allocated_total_tb += total_size_gb / 1000
                     pool_data.append({
                         'pool': pname,
                         'allocated_tb': total_size_gb / 1000,
                         'utilized_tb': total_utilized_gb / 1000,
                         'left_tb': total_left_gb / 1000,
                         'avg_util': (total_utilized_gb / total_size_gb) if total_size_gb > 0 else 0,
-                        'volume_count': volumes.count()
+                        'volume_count': len(volumes)
                     })
 
             # Get top tenants (exclude Lab Engineering child pools)
-            all_volumes = StorageData.objects.exclude(
-                child_pool__iregex=r'^\s*(lab engineering|buffer)\s*$|^\s*$'
-            )
+            all_volumes = StorageData.objects.all()
             tenant_data = {}
             for volume in all_volumes:
+                # Skip Lab Engineering child pools
+                if is_lab_engineering(volume.child_pool):
+                    continue
+                    
                 tenant = volume.volume.split('_')[0] if '_' in volume.volume else volume.volume
                 # Skip if tenant name itself is Lab Engineering/Buffer
                 if is_lab_engineering(tenant):
@@ -292,10 +302,15 @@ def get_dashboard_data(request):
                 tenant_data[tenant]['utilized_gb'] += volume.utilized_gb
 
             top_tenants = sorted(tenant_data.values(), key=lambda x: x['utilized_gb'], reverse=True)[:10]
+            
+            # Calculate available buffer = Total Capacity - Allocated
+            available_buffer_tb = total_capacity_tb - allocated_total_tb
 
             return Response({
                 'level': 'pools',
                 'total_capacity_tb': total_capacity_tb,  # Includes Lab Engineering child pool
+                'allocated_tb': allocated_total_tb,  # NEW: Excludes Lab Engineering
+                'available_buffer_tb': available_buffer_tb,  # NEW: Calculated buffer
                 'pools': pool_data,
                 'top_tenants': top_tenants
             })
@@ -309,6 +324,8 @@ def get_dashboard_data(request):
             # Calculate child pool data (EXCLUDES Lab Engineering child pools for display)
             child_pools = StorageData.objects.filter(pool=pool_name).values('child_pool').distinct()
             child_pool_data = []
+            allocated_total_tb = 0  # Track total allocated (excluding Lab Engineering)
+            
             for cp in child_pools:
                 cpname = cp['child_pool']
                 # Skip Lab Engineering child pools
@@ -321,6 +338,8 @@ def get_dashboard_data(request):
                 total_utilized_gb = sum(v.utilized_gb for v in volumes)
                 total_left_gb = sum(v.left_gb for v in volumes)
 
+                allocated_total_tb += total_size_gb / 1000
+                
                 child_pool_data.append({
                     'child_pool': cpname,
                     'allocated_tb': total_size_gb / 1000,
@@ -330,9 +349,14 @@ def get_dashboard_data(request):
                     'volume_count': volumes.count()
                 })
 
+            # Calculate available buffer = Total Capacity - Allocated
+            available_buffer_tb = total_capacity_tb - allocated_total_tb
+
             return Response({
                 'level': 'child_pools',
                 'total_capacity_tb': total_capacity_tb,  # Includes Lab Engineering child pool
+                'allocated_tb': allocated_total_tb,  # NEW: Excludes Lab Engineering
+                'available_buffer_tb': available_buffer_tb,  # NEW: Calculated buffer
                 'data': child_pool_data,
                 'breadcrumb': {'pool': pool_name}
             })
@@ -346,6 +370,8 @@ def get_dashboard_data(request):
             # Calculate tenant data (EXCLUDES Buffer/Lab Engineering tenants for display)
             volumes = StorageData.objects.filter(pool=pool_name, child_pool=child_pool_name)
             tenant_data = {}
+            allocated_total_gb = 0  # Track total allocated (excluding Lab Engineering/Buffer tenants)
+            
             for volume in volumes:
                 tenant = volume.volume.split('_')[0] if '_' in volume.volume else volume.volume
                 
@@ -366,6 +392,7 @@ def get_dashboard_data(request):
                 tenant_data[tenant]['utilized_gb'] += volume.utilized_gb
                 tenant_data[tenant]['left_gb'] += volume.left_gb
                 tenant_data[tenant]['volume_count'] += 1
+                allocated_total_gb += volume.volume_size_gb
 
             for tenant in tenant_data.values():
                 if tenant['allocated_gb'] > 0:
@@ -373,9 +400,14 @@ def get_dashboard_data(request):
                 else:
                     tenant['avg_utilization'] = 0
 
+            # Calculate available buffer = Total Capacity - Allocated
+            available_buffer_gb = total_capacity_gb - allocated_total_gb
+
             return Response({
                 'level': 'tenants',
                 'total_capacity_gb': total_capacity_gb,  # Includes Buffer tenant capacity
+                'allocated_gb': allocated_total_gb,  # NEW: Excludes Buffer
+                'available_buffer_gb': available_buffer_gb,  # NEW: Calculated buffer
                 'data': list(tenant_data.values()),
                 'breadcrumb': {'pool': pool_name, 'child_pool': child_pool_name}
             })
