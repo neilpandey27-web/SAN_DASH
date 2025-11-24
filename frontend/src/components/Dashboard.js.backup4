@@ -1,0 +1,892 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Tile,
+  DataTable,
+  TableContainer,
+  Table,
+  TableHead,
+  TableRow,
+  TableHeader,
+  TableBody,
+  TableCell,
+  Button,
+  Loading,
+} from '@carbon/react';
+import { Chart as ChartJS, ArcElement, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
+import ChartDataLabels from 'chartjs-plugin-datalabels';
+import { Pie, Bar, Doughnut } from 'react-chartjs-2';
+import api from '../services/api';
+
+ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ChartDataLabels);
+
+const Dashboard = ({ isAdmin, onLogout }) => {
+  const [data, setData] = useState({});
+  const [level, setLevel] = useState('pools');
+  const [filter, setFilter] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [useTB, setUseTB] = useState(true);
+
+  useEffect(() => {
+    fetchData();
+  }, [filter]);
+
+  const fetchData = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const params = new URLSearchParams(filter);
+      console.log('Fetching with params:', params.toString());
+      const res = await api.get(`/dashboard/?${params.toString()}`);
+      console.log('API Response:', res.data);
+      setData(res.data);
+      setLevel(res.data.level || 'pools');
+    } catch (err) {
+      setError('Failed to load dashboard data');
+      console.error('Dashboard error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDrillDown = (type, value) => {
+    console.log('Drill down clicked:', type, value);
+    if (type === 'pool') {
+      setFilter({ pool: value });
+    } else if (type === 'child_pool') {
+      setFilter({ ...filter, child_pool: value });
+    } else if (type === 'tenant') {
+      setFilter({ ...filter, tenant: value });
+    }
+  };
+
+  const handleBack = () => {
+    console.log('Back clicked, current level:', level);
+    if (level === 'volumes') {
+      const newFilter = { pool: filter.pool, child_pool: filter.child_pool };
+      setFilter(newFilter);
+    } else if (level === 'tenants') {
+      setFilter({ pool: filter.pool });
+    } else if (level === 'child_pools') {
+      setFilter({});
+    }
+  };
+
+  const handleLogoutClick = async () => {
+    try {
+      await api.post('/logout/');
+      onLogout();
+    } catch (err) {
+      console.error('Logout error:', err);
+      onLogout();
+    }
+  };
+
+  const convertValue = (value, fromUnit = 'TB') => {
+    if (useTB && fromUnit === 'GB') {
+      return value / 1000;
+    } else if (!useTB && fromUnit === 'TB') {
+      return value * 1000;
+    }
+    return value;
+  };
+
+  const formatNumber = (value) => {
+    const num = parseFloat(value);
+    if (isNaN(num)) return '0.00';
+    return num.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  };
+
+  const getUnit = () => useTB ? 'TB' : 'GB';
+
+  if (loading) {
+    return <Loading description="Loading dashboard data..." withOverlay={false} />;
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: '20px' }}>
+        <p style={{ color: 'red' }}>{error}</p>
+        <Button onClick={fetchData}>Retry</Button>
+      </div>
+    );
+  }
+
+  // Calculate summary for all levels
+  let summaryData = null;
+
+  if (level === 'pools' && data.pools && Array.isArray(data.pools)) {
+    const totalAllocated = data.pools.reduce((sum, p) => sum + (p.allocated_tb || 0), 0);
+    const totalUtilized = data.pools.reduce((sum, p) => sum + (p.utilized_tb || 0), 0);
+    const totalLeft = data.pools.reduce((sum, p) => sum + (p.left_tb || 0), 0);
+    const avgUtil = totalAllocated > 0 ? (totalUtilized / totalAllocated) : 0;
+
+    summaryData = {
+      allocated: convertValue(totalAllocated, 'TB'),
+      utilized: convertValue(totalUtilized, 'TB'),
+      left: convertValue(totalLeft, 'TB'),
+      avg_util: avgUtil
+    };
+  } else if (level === 'child_pools' && data.data && Array.isArray(data.data)) {
+    const totalAllocated = data.data.reduce((sum, p) => sum + (p.allocated_tb || 0), 0);
+    const totalUtilized = data.data.reduce((sum, p) => sum + (p.utilized_tb || 0), 0);
+    const totalLeft = data.data.reduce((sum, p) => sum + (p.left_tb || 0), 0);
+    const avgUtil = totalAllocated > 0 ? (totalUtilized / totalAllocated) : 0;
+
+    summaryData = {
+      allocated: convertValue(totalAllocated, 'TB'),
+      utilized: convertValue(totalUtilized, 'TB'),
+      left: convertValue(totalLeft, 'TB'),
+      avg_util: avgUtil
+    };
+  } else if (level === 'tenants' && data.data && Array.isArray(data.data)) {
+    const totalAllocated = data.data.reduce((sum, t) => sum + (t.allocated_gb || 0), 0);
+    const totalUtilized = data.data.reduce((sum, t) => sum + (t.utilized_gb || 0), 0);
+    const totalLeft = data.data.reduce((sum, t) => sum + (t.left_gb || 0), 0);
+    const avgUtil = totalAllocated > 0 ? (totalUtilized / totalAllocated) : 0;
+
+    summaryData = {
+      allocated: convertValue(totalAllocated, 'GB'),
+      utilized: convertValue(totalUtilized, 'GB'),
+      left: convertValue(totalLeft, 'GB'),
+      avg_util: avgUtil
+    };
+  } else if (level === 'volumes' && data.data && Array.isArray(data.data)) {
+    const totalAllocated = data.data.reduce((sum, v) => sum + (v.volume_size_gb || 0), 0);
+    const totalUtilized = data.data.reduce((sum, v) => sum + (v.utilized_gb || 0), 0);
+    const totalLeft = data.data.reduce((sum, v) => sum + (v.left_gb || 0), 0);
+    const avgUtil = totalAllocated > 0 ? (totalUtilized / totalAllocated) : 0;
+
+    summaryData = {
+      allocated: convertValue(totalAllocated, 'GB'),
+      utilized: convertValue(totalUtilized, 'GB'),
+      left: convertValue(totalLeft, 'GB'),
+      avg_util: avgUtil
+    };
+  }
+
+  // Stacked Donut Chart data - Available at all levels
+  let donutData = null;
+  let donutTitle = '';
+
+  // Color palettes
+  const utilizedColors = [
+    '#0f62fe', '#8a3ffc', '#33b1ff', '#007d79',
+    '#ff7eb6', '#fa4d56', '#24a148', '#f1c21b',
+    '#d12771', '#8a3800'
+  ];
+
+  const availableColor = '#e0e0e0';
+
+  if (level === 'pools' && data.pools && Array.isArray(data.pools)) {
+    const totalAllocated = data.pools.reduce((sum, p) => sum + (p.allocated_tb || 0), 0);
+    const totalUtilized = data.pools.reduce((sum, p) => sum + (p.utilized_tb || 0), 0);
+    const totalAvailable = totalAllocated - totalUtilized;
+
+    const outerLabels = ['Utilized', 'Available'];
+    const outerData = [
+      convertValue(totalUtilized, 'TB'),
+      convertValue(totalAvailable, 'TB')
+    ];
+    const outerColors = ['#0f62fe', availableColor];
+
+    const innerLabels = data.pools.map(p => p.pool || 'Unknown');
+    const innerData = data.pools.map(p => convertValue(p.utilized_tb || 0, 'TB'));
+    const innerColors = data.pools.map((_, idx) => utilizedColors[idx % utilizedColors.length]);
+
+    donutData = {
+      labels: [...outerLabels, ...innerLabels],
+      datasets: [
+        {
+          label: 'Overall',
+          data: outerData,
+          backgroundColor: outerColors,
+          borderWidth: 2,
+          borderColor: '#fff',
+          weight: 1,
+          datalabels: {
+            color: '#fff',
+            font: {
+              weight: 'bold',
+              size: 14
+            },
+            formatter: (value, context) => {
+              const label = context.chart.data.labels[context.dataIndex];
+              const percentage = ((value / outerData.reduce((a, b) => a + b, 0)) * 100).toFixed(1);
+              return `${label}\n${percentage}%`;
+            }
+          }
+        },
+        {
+          label: 'Pool Breakdown',
+          data: innerData,
+          backgroundColor: innerColors,
+          borderWidth: 2,
+          borderColor: '#fff',
+          weight: 2,
+          datalabels: {
+            color: '#fff',
+            font: {
+              size: 10,
+              weight: 'bold'
+            },
+            formatter: (value, context) => {
+              const total = innerData.reduce((a, b) => a + b, 0);
+              const percentage = ((value / total) * 100).toFixed(1);
+              // Only show label if segment is large enough (>5%)
+              return percentage > 5 ? `${percentage}%` : '';
+            }
+          }
+        }
+      ]
+    };
+    donutTitle = 'Pool Utilization Distribution';
+  } else if (level === 'child_pools' && data.data && Array.isArray(data.data)) {
+    const totalAllocated = data.data.reduce((sum, p) => sum + (p.allocated_tb || 0), 0);
+    const totalUtilized = data.data.reduce((sum, p) => sum + (p.utilized_tb || 0), 0);
+    const totalAvailable = totalAllocated - totalUtilized;
+
+    const outerLabels = ['Utilized', 'Available'];
+    const outerData = [
+      convertValue(totalUtilized, 'TB'),
+      convertValue(totalAvailable, 'TB')
+    ];
+    const outerColors = ['#0f62fe', availableColor];
+
+    const innerLabels = data.data.map(cp => cp.child_pool || 'Unknown');
+    const innerData = data.data.map(cp => convertValue(cp.utilized_tb || 0, 'TB'));
+    const innerColors = data.data.map((_, idx) => utilizedColors[idx % utilizedColors.length]);
+
+    donutData = {
+      labels: [...outerLabels, ...innerLabels],
+      datasets: [
+        {
+          label: 'Overall',
+          data: outerData,
+          backgroundColor: outerColors,
+          borderWidth: 2,
+          borderColor: '#fff',
+          weight: 1,
+          datalabels: {
+            color: '#fff',
+            font: {
+              weight: 'bold',
+              size: 14
+            },
+            formatter: (value, context) => {
+              const label = context.chart.data.labels[context.dataIndex];
+              const percentage = ((value / outerData.reduce((a, b) => a + b, 0)) * 100).toFixed(1);
+              return `${label}\n${percentage}%`;
+            }
+          }
+        },
+        {
+          label: 'Child Pool Breakdown',
+          data: innerData,
+          backgroundColor: innerColors,
+          borderWidth: 2,
+          borderColor: '#fff',
+          weight: 2,
+          datalabels: {
+            color: '#fff',
+            font: {
+              size: 10,
+              weight: 'bold'
+            },
+            formatter: (value, context) => {
+              const total = innerData.reduce((a, b) => a + b, 0);
+              const percentage = ((value / total) * 100).toFixed(1);
+              return percentage > 5 ? `${percentage}%` : '';
+            }
+          }
+        }
+      ]
+    };
+    donutTitle = 'Child Pool Utilization Distribution';
+  } else if (level === 'tenants' && data.data && Array.isArray(data.data)) {
+    const totalAllocated = data.data.reduce((sum, t) => sum + (t.allocated_gb || 0), 0);
+    const totalUtilized = data.data.reduce((sum, t) => sum + (t.utilized_gb || 0), 0);
+    const totalAvailable = totalAllocated - totalUtilized;
+
+    const outerLabels = ['Utilized', 'Available'];
+    const outerData = [
+      convertValue(totalUtilized, 'GB'),
+      convertValue(totalAvailable, 'GB')
+    ];
+    const outerColors = ['#0f62fe', availableColor];
+
+    const innerLabels = data.data.map(t => t.name || 'Unknown');
+    const innerData = data.data.map(t => convertValue(t.utilized_gb || 0, 'GB'));
+    const innerColors = data.data.map((_, idx) => utilizedColors[idx % utilizedColors.length]);
+
+    donutData = {
+      labels: [...outerLabels, ...innerLabels],
+      datasets: [
+        {
+          label: 'Overall',
+          data: outerData,
+          backgroundColor: outerColors,
+          borderWidth: 2,
+          borderColor: '#fff',
+          weight: 1,
+          datalabels: {
+            color: '#fff',
+            font: {
+              weight: 'bold',
+              size: 14
+            },
+            formatter: (value, context) => {
+              const label = context.chart.data.labels[context.dataIndex];
+              const percentage = ((value / outerData.reduce((a, b) => a + b, 0)) * 100).toFixed(1);
+              return `${label}\n${percentage}%`;
+            }
+          }
+        },
+        {
+          label: 'Tenant Breakdown',
+          data: innerData,
+          backgroundColor: innerColors,
+          borderWidth: 2,
+          borderColor: '#fff',
+          weight: 2,
+          datalabels: {
+            color: '#fff',
+            font: {
+              size: 10,
+              weight: 'bold'
+            },
+            formatter: (value, context) => {
+              const total = innerData.reduce((a, b) => a + b, 0);
+              const percentage = ((value / total) * 100).toFixed(1);
+              return percentage > 5 ? `${percentage}%` : '';
+            }
+          }
+        }
+      ]
+    };
+    donutTitle = 'Tenant Utilization Distribution';
+  } else if (level === 'volumes' && data.data && Array.isArray(data.data)) {
+    const totalAllocated = data.data.reduce((sum, v) => sum + (v.volume_size_gb || 0), 0);
+    const totalUtilized = data.data.reduce((sum, v) => sum + (v.utilized_gb || 0), 0);
+    const totalAvailable = totalAllocated - totalUtilized;
+
+    const outerLabels = ['Utilized', 'Available'];
+    const outerData = [
+      convertValue(totalUtilized, 'GB'),
+      convertValue(totalAvailable, 'GB')
+    ];
+    const outerColors = ['#0f62fe', availableColor];
+
+    const innerLabels = data.data.map(v => v.volume || 'Unknown');
+    const innerData = data.data.map(v => convertValue(v.utilized_gb || 0, 'GB'));
+    const innerColors = data.data.map((_, idx) => utilizedColors[idx % utilizedColors.length]);
+
+    donutData = {
+      labels: [...outerLabels, ...innerLabels],
+      datasets: [
+        {
+          label: 'Overall',
+          data: outerData,
+          backgroundColor: outerColors,
+          borderWidth: 2,
+          borderColor: '#fff',
+          weight: 1,
+          datalabels: {
+            color: '#fff',
+            font: {
+              weight: 'bold',
+              size: 14
+            },
+            formatter: (value, context) => {
+              const label = context.chart.data.labels[context.dataIndex];
+              const percentage = ((value / outerData.reduce((a, b) => a + b, 0)) * 100).toFixed(1);
+              return `${label}\n${percentage}%`;
+            }
+          }
+        },
+        {
+          label: 'Volume Breakdown',
+          data: innerData,
+          backgroundColor: innerColors,
+          borderWidth: 2,
+          borderColor: '#fff',
+          weight: 2,
+          datalabels: {
+            color: '#fff',
+            font: {
+              size: 10,
+              weight: 'bold'
+            },
+            formatter: (value, context) => {
+              const total = innerData.reduce((a, b) => a + b, 0);
+              const percentage = ((value / total) * 100).toFixed(1);
+              return percentage > 5 ? `${percentage}%` : '';
+            }
+          }
+        }
+      ]
+    };
+    donutTitle = 'Volume Utilization Distribution';
+  }
+
+  // Bar chart data - only for pools level
+  const barData = (level === 'pools' && data.top_tenants && Array.isArray(data.top_tenants))
+    ? {
+        labels: data.top_tenants.map((t) => t.name || 'Unknown'),
+        datasets: [
+          {
+            label: `Utilized ${getUnit()}`,
+            data: data.top_tenants.map((t) => convertValue((t.utilized_gb || 0) / 1000, 'TB')),
+            backgroundColor: '#0f62fe',
+          },
+        ],
+      }
+    : null;
+
+  // Table data
+  let tableHeaders = [];
+  let tableRows = [];
+
+  if (level === 'pools' && data.pools && Array.isArray(data.pools)) {
+    tableHeaders = [
+      { key: 'pool', header: 'Pool' },
+      { key: 'allocated', header: `Allocated ${getUnit()}` },
+      { key: 'utilized', header: `Utilized ${getUnit()}` },
+      { key: 'left', header: `Left ${getUnit()}` },
+      { key: 'avg_util', header: 'Avg Utilization %' },
+    ];
+    tableRows = data.pools.map((pool, index) => ({
+      id: String(index),
+      pool: String(pool.pool || 'Unknown'),
+      allocated: formatNumber(convertValue(pool.allocated_tb || 0, 'TB')),
+      utilized: formatNumber(convertValue(pool.utilized_tb || 0, 'TB')),
+      left: formatNumber(convertValue(pool.left_tb || 0, 'TB')),
+      avg_util: formatNumber((pool.avg_util || 0) * 100),
+      clickable: true,
+      clickValue: pool.pool,
+      clickType: 'pool',
+    }));
+  } else if (level === 'child_pools' && data.data && Array.isArray(data.data)) {
+    tableHeaders = [
+      { key: 'child_pool', header: 'Child Pool' },
+      { key: 'allocated', header: `Allocated ${getUnit()}` },
+      { key: 'utilized', header: `Utilized ${getUnit()}` },
+      { key: 'left', header: `Left ${getUnit()}` },
+      { key: 'avg_util', header: 'Avg Utilization %' },
+    ];
+    tableRows = data.data.map((cp, index) => ({
+      id: String(index),
+      child_pool: String(cp.child_pool || 'Unknown'),
+      allocated: formatNumber(convertValue(cp.allocated_tb || 0, 'TB')),
+      utilized: formatNumber(convertValue(cp.utilized_tb || 0, 'TB')),
+      left: formatNumber(convertValue(cp.left_tb || 0, 'TB')),
+      avg_util: formatNumber((cp.avg_util || 0) * 100),
+      clickable: true,
+      clickValue: cp.child_pool,
+      clickType: 'child_pool',
+    }));
+  } else if (level === 'tenants' && data.data && Array.isArray(data.data)) {
+    tableHeaders = [
+      { key: 'name', header: 'Tenant' },
+      { key: 'allocated', header: `Allocated ${getUnit()}` },
+      { key: 'utilized', header: `Utilized ${getUnit()}` },
+      { key: 'left', header: `Left ${getUnit()}` },
+      { key: 'avg_utilization', header: 'Avg Utilization %' },
+    ];
+    tableRows = data.data.map((tenant, index) => ({
+      id: String(index),
+      name: String(tenant.name || 'Unknown'),
+      allocated: formatNumber(convertValue(tenant.allocated_gb || 0, 'GB')),
+      utilized: formatNumber(convertValue(tenant.utilized_gb || 0, 'GB')),
+      left: formatNumber(convertValue(tenant.left_gb || 0, 'GB')),
+      avg_utilization: formatNumber((tenant.avg_utilization || 0) * 100),
+      clickable: true,
+      clickValue: tenant.name,
+      clickType: 'tenant',
+    }));
+  } else if (level === 'volumes' && data.data && Array.isArray(data.data)) {
+    tableHeaders = [
+      { key: 'volume', header: 'Volume' },
+      { key: 'system', header: 'System' },
+      { key: 'allocated', header: `Allocated ${getUnit()}` },
+      { key: 'utilized', header: `Utilized ${getUnit()}` },
+      { key: 'left', header: `Left ${getUnit()}` },
+      { key: 'avg_utilization', header: 'Avg Utilization %' },
+    ];
+    tableRows = data.data.map((volume, index) => ({
+      id: String(index),
+      volume: String(volume.volume || 'Unknown'),
+      system: String(volume.system || 'Unknown'),
+      allocated: formatNumber(convertValue(volume.volume_size_gb || 0, 'GB')),
+      utilized: formatNumber(convertValue(volume.utilized_gb || 0, 'GB')),
+      left: formatNumber(convertValue(volume.left_gb || 0, 'GB')),
+      avg_utilization: formatNumber((volume.written_by_host_percent || 0) * 100),
+      clickable: false,
+    }));
+  }
+
+  return (
+    <div style={{ padding: '20px' }}>
+      <style>{`
+        .custom-table table {
+          border-collapse: collapse;
+          width: 100%;
+          border: 1px solid #e0e0e0;
+        }
+        
+        .custom-table thead {
+          background-color: #f4f4f4;
+        }
+        
+        .custom-table th {
+          border: 1px solid #e0e0e0;
+          padding: 12px;
+          text-align: center;
+          font-weight: 600;
+          font-size: 14px;
+          color: #161616;
+        }
+        
+        .custom-table td {
+          border: 1px solid #e0e0e0;
+          padding: 12px;
+          text-align: center;
+          font-size: 14px;
+          color: #525252;
+        }
+        
+        .custom-table tbody tr {
+          border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .custom-table tbody tr:hover {
+          background-color: #f4f4f4;
+        }
+        
+        .custom-table tbody tr.clickable-row {
+          cursor: pointer;
+        }
+        
+        .custom-table tbody tr.clickable-row:hover {
+          background-color: #e8f4fd;
+        }
+
+        .summary-table {
+          margin-bottom: 20px;
+        }
+
+        .summary-table table {
+          border-collapse: collapse;
+          width: 100%;
+          border: 1px solid #e0e0e0;
+        }
+
+        .summary-table th {
+          border: 1px solid #e0e0e0;
+          padding: 12px;
+          text-align: center;
+          font-weight: 600;
+          font-size: 14px;
+          color: #161616;
+          background-color: #f4f4f4;
+        }
+
+        .summary-table td {
+          border: 1px solid #e0e0e0;
+          padding: 16px;
+          text-align: center;
+          font-size: 18px;
+          font-weight: 600;
+          color: #161616;
+        }
+
+        .unit-toggle-group {
+          display: inline-flex;
+          border: 1px solid #8d8d8d;
+          border-radius: 4px;
+          overflow: hidden;
+        }
+
+        .unit-toggle-btn {
+          padding: 6px 16px;
+          border: none;
+          background: white;
+          color: #161616;
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: 500;
+          transition: all 0.2s ease;
+          border-right: 1px solid #8d8d8d;
+        }
+
+        .unit-toggle-btn:last-child {
+          border-right: none;
+        }
+
+        .unit-toggle-btn:hover:not(.active) {
+          background-color: #f4f4f4;
+        }
+
+        .unit-toggle-btn.active {
+          background-color: #0f62fe;
+          color: white;
+        }
+
+        .unit-toggle-btn:focus {
+          outline: 2px solid #0f62fe;
+          outline-offset: -2px;
+        }
+      `}</style>
+
+      <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+          {level !== 'pools' && (
+            <Button onClick={handleBack} kind="secondary">
+              Back
+            </Button>
+          )}
+          <Button onClick={fetchData} kind="tertiary">
+            Refresh
+          </Button>
+          <span style={{ color: '#525252' }}>
+            Level: {level}
+            {data.breadcrumb && ` | Pool: ${data.breadcrumb.pool || ''}`}
+            {data.breadcrumb?.child_pool && ` > ${data.breadcrumb.child_pool}`}
+            {data.breadcrumb?.tenant && ` > ${data.breadcrumb.tenant}`}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+          <div className="unit-toggle-group">
+            <button
+              className={`unit-toggle-btn ${!useTB ? 'active' : ''}`}
+              onClick={() => setUseTB(false)}
+            >
+              GB
+            </button>
+            <button
+              className={`unit-toggle-btn ${useTB ? 'active' : ''}`}
+              onClick={() => setUseTB(true)}
+            >
+              TB
+            </button>
+          </div>
+          <Button onClick={handleLogoutClick} kind="danger">
+            Logout
+          </Button>
+        </div>
+      </div>
+
+      {/* Overall Summary Table */}
+      {summaryData && (
+        <div className="summary-table custom-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Allocated</th>
+                <th>Utilized</th>
+                <th>Available</th>
+                <th>Avg Utilization</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>{formatNumber(summaryData.allocated)} {getUnit()}</td>
+                <td>{formatNumber(summaryData.utilized)} {getUnit()}</td>
+                <td>{formatNumber(summaryData.left)} {getUnit()}</td>
+                <td>{formatNumber(summaryData.avg_util * 100)}%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Charts Row */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: level === 'pools' && barData ? '1fr 1fr' : '1fr',
+        gap: '20px',
+        marginBottom: '20px'
+      }}>
+        {/* Stacked Donut Chart */}
+        {donutData && (
+          <Tile>
+            <h4>{donutTitle}</h4>
+            <div style={{ height: '350px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+              <Doughnut
+                data={donutData}
+                options={{
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: {
+                      display: true,
+                      position: 'right',
+        align: 'center',
+        labels: {
+          boxWidth: 15,
+          boxHeight: 15,
+          padding: 15,
+          font: {
+            size: 13,
+            weight: 'normal'
+          },
+          generateLabels: function(chart) {
+            const datasets = chart.data.datasets;
+            // Only show outer ring labels (Utilized/Available) with percentages
+            if (datasets.length > 0) {
+              const outerDataset = datasets[0];
+              const total = outerDataset.data.reduce((a, b) => a + b, 0);
+              
+              return outerDataset.data.map((value, i) => {
+                const label = chart.data.labels[i];
+                const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                
+                return {
+                  text: `${label} (${percentage}%)`,
+                  fillStyle: outerDataset.backgroundColor[i],
+                  strokeStyle: outerDataset.backgroundColor[i],
+                  lineWidth: 2,
+                  hidden: false,
+                  index: i,
+                  datasetIndex: 0
+                };
+              });
+            }
+            return [];
+          }
+        }
+                    },
+                    tooltip: {
+                      callbacks: {
+                        label: function(context) {
+                          const label = context.label || '';
+                          const value = context.parsed || 0;
+                          return `${label}: ${formatNumber(value)} ${getUnit()}`;
+                        }
+                      }
+                    }
+                  },
+                  cutout: '50%'
+                }}
+              />
+            </div>
+          </Tile>
+        )}
+
+        {/* Bar Chart - Only on pools level */}
+        {level === 'pools' && barData && (
+          <Tile>
+            <h4>Top 10 Tenants by Utilization</h4>
+            <div style={{ height: '350px' }}>
+              <Bar
+                data={barData}
+                options={{
+                  maintainAspectRatio: false,
+                  plugins: {
+                    datalabels: {
+                      display: false
+                    },
+                    legend: {
+                      display: true
+                    },
+                    tooltip: {
+                      callbacks: {
+                        label: function(context) {
+                          return `${formatNumber(context.parsed.y)} ${getUnit()}`;
+                        }
+                      }
+                    }
+                  },
+                  scales: {
+                    y: {
+                      beginAtZero: true,
+                      title: { display: true, text: getUnit() },
+                      ticks: {
+                        callback: function(value) {
+                          return formatNumber(value);
+                        }
+                      }
+                    },
+                    x: {
+                      ticks: {
+                        maxRotation: 45,
+                        minRotation: 45
+                      }
+                    }
+                  }
+                }}
+              />
+            </div>
+          </Tile>
+        )}
+      </div>
+
+      {/* Data Table */}
+      {tableRows.length > 0 && (
+        <div className="custom-table">
+          <DataTable rows={tableRows} headers={tableHeaders}>
+            {({ rows, headers, getTableProps, getHeaderProps, getRowProps }) => (
+              <TableContainer
+                title={
+                  level === 'pools'
+                    ? 'Pools'
+                    : level === 'child_pools'
+                    ? `Child Pools in ${data.breadcrumb?.pool || ''}`
+                    : level === 'tenants'
+                    ? `Tenants in ${data.breadcrumb?.child_pool || ''}`
+                    : `Volumes for ${data.breadcrumb?.tenant || ''}`
+                }
+              >
+                <Table {...getTableProps()}>
+                  <TableHead>
+                    <TableRow>
+                      {headers.map((header) => (
+                        <TableHeader key={header.key} {...getHeaderProps({ header })}>
+                          {header.header}
+                        </TableHeader>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {rows.map((row) => {
+                      const originalRow = tableRows.find((r) => r.id === row.id);
+                      return (
+                        <TableRow
+                          key={row.id}
+                          {...getRowProps({ row })}
+                          className={originalRow?.clickable ? 'clickable-row' : ''}
+                          onClick={() => {
+                            if (originalRow?.clickable) {
+                              handleDrillDown(originalRow.clickType, originalRow.clickValue);
+                            }
+                          }}
+                          style={{
+                            cursor: originalRow?.clickable ? 'pointer' : 'default',
+                          }}
+                        >
+                          {row.cells.map((cell) => (
+                            <TableCell key={cell.id}>{cell.value}</TableCell>
+                          ))}
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </DataTable>
+        </div>
+      )}
+
+      {tableRows.length === 0 && (
+        <Tile>
+          <p>No data available. {isAdmin ? 'Please upload a data file.' : 'Contact admin to upload data.'}</p>
+        </Tile>
+      )}
+    </div>
+  );
+};
+
+export default Dashboard;
