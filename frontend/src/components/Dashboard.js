@@ -238,14 +238,15 @@ const Dashboard = ({ isAdmin, onLogout }) => {
 
 
   // ============================================================================
-  // CAPACITY SUNBURST CHART (Total SAN Capacity Breakdown)
-  // Center: Total SAN Capacity
+  // CAPACITY SUNBURST CHART (Total Capacity Breakdown for All Levels)
+  // Center: Total Capacity (varies by level)
   // Layer 1 (Inner): Available Buffer + Allocated
   // Layer 2 (Middle): Allocated → Utilized + Unutilized (Buffer has no Layer 2)
   // Layer 3 (Outer): Detail layer on top of Utilized/Unutilized (Buffer has gap)
+  // Works for: pools, child_pools, tenants, volumes
   // ============================================================================
   const getCapacitySunburstOption = () => {
-    if (level !== 'pools' || !summaryData) {
+    if (!summaryData) {
       return null;
     }
 
@@ -256,9 +257,19 @@ const Dashboard = ({ isAdmin, onLogout }) => {
     const utilizedGB = summaryData.utilized * (unit === 'TB' ? 1000 : unit === 'GB' ? 1 : 1000000);
     const unutilizedGB = summaryData.unutilized * (unit === 'TB' ? 1000 : unit === 'GB' ? 1 : 1000000);
 
+    // Dynamic center name based on drill level
+    let centerName = 'Total SAN Capacity';
+    if (level === 'child_pools') {
+      centerName = `${data.breadcrumb?.pool || 'Pool'} Capacity`;
+    } else if (level === 'tenants') {
+      centerName = `${data.breadcrumb?.child_pool || 'Child Pool'} Capacity`;
+    } else if (level === 'volumes') {
+      centerName = `${data.breadcrumb?.tenant || 'Tenant'} Capacity`;
+    }
+
     const capacityData = [
       {
-        name: 'Total SAN Capacity',
+        name: centerName,
         value: totalCapacityGB,
         itemStyle: { color: '#525252' },
         children: [
@@ -303,10 +314,20 @@ const Dashboard = ({ isAdmin, onLogout }) => {
       }
     ];
 
+    // Dynamic title based on drill level
+    let titleText = 'Total SAN Capacity Breakdown';
+    if (level === 'child_pools') {
+      titleText = `${data.breadcrumb?.pool || 'Pool'} - Capacity Breakdown`;
+    } else if (level === 'tenants') {
+      titleText = `${data.breadcrumb?.child_pool || 'Child Pool'} - Capacity Breakdown`;
+    } else if (level === 'volumes') {
+      titleText = `${data.breadcrumb?.tenant || 'Tenant'} - Capacity Breakdown`;
+    }
+
     return {
       backgroundColor: 'transparent',
       title: {
-        text: 'Total SAN Capacity Breakdown',
+        text: titleText,
         left: 'center',
         top: 10,
         textStyle: {
@@ -334,7 +355,7 @@ const Dashboard = ({ isAdmin, onLogout }) => {
           sort: null,
           highlightPolicy: 'ancestor',
           itemStyle: {
-            borderWidth: 2,  // Match Layer 4 border width
+            borderWidth: 0,  // Remove borders for seamless appearance
             borderColor: '#fff'
           },
           emphasis: {
@@ -342,7 +363,7 @@ const Dashboard = ({ isAdmin, onLogout }) => {
             itemStyle: {
               shadowBlur: 10,
               shadowColor: 'rgba(0, 0, 0, 0.5)',
-              borderWidth: 3,  // Match Layer 4 border width on hover
+              borderWidth: 3,  // Show border only on hover
               borderColor: '#fff'
             }
           },
@@ -618,8 +639,8 @@ const Dashboard = ({ isAdmin, onLogout }) => {
     }));
   }
 
-  // Use sunburst chart for pools level Layer 2
-  const capacitySunburstOption = level === 'pools' ? getCapacitySunburstOption() : null;
+  // Use sunburst chart for all drill levels
+  const capacitySunburstOption = getCapacitySunburstOption();
   const barOption = getBarChartOption();
 
   // ============================================================================
@@ -825,7 +846,7 @@ const Dashboard = ({ isAdmin, onLogout }) => {
       )}
 
       {/* ======================================================================
-          LAYER 2: CAPACITY SUNBURST + BAR CHART (Pools Level) or PIE/DONUT CHART (Other Levels)
+          LAYER 2: CAPACITY SUNBURST + BAR CHART (All Levels)
           ====================================================================== */}
       {/* Pools Level: Show capacity sunburst and bar chart side by side */}
       {level === 'pools' && (capacitySunburstOption || barOption) && (
@@ -851,6 +872,19 @@ const Dashboard = ({ isAdmin, onLogout }) => {
               />
             </Tile>
           )}
+        </div>
+      )}
+
+      {/* Other Levels: Show capacity sunburst full width */}
+      {level !== 'pools' && capacitySunburstOption && (
+        <div style={{ marginBottom: '20px' }}>
+          <Tile>
+            <ReactECharts 
+              option={capacitySunburstOption} 
+              style={{ height: '700px', width: '100%' }}
+              opts={{ renderer: 'svg' }}
+            />
+          </Tile>
         </div>
       )}
       
