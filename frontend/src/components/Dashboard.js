@@ -348,7 +348,7 @@ const Dashboard = ({ isAdmin, onLogout }) => {
         {
           type: 'sunburst',
           data: capacityData,
-          radius: [0, '55%'],  // No inner hole, single ring from center
+          radius: ['37.5%', '55%'],  // Bigger inner hole (30% * 1.25 = 37.5%), same outer radius
           center: ['50%', '55%'],
           sort: null,
           highlightPolicy: 'ancestor',
@@ -387,8 +387,8 @@ const Dashboard = ({ isAdmin, onLogout }) => {
           },
           levels: [
             {
-              // Single ring: Available Buffer + Entity breakdown (Pools/Child Pools/Tenants/Volumes)
-              r0: 0,
+              // Single ring with bigger hole: Available Buffer + Entity breakdown (Pools/Child Pools/Tenants/Volumes)
+              r0: '37.5%',
               r: '55%',
               label: {
                 position: 'outside',  // Position labels outside
