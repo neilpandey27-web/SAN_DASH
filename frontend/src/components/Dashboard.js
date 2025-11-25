@@ -254,31 +254,7 @@ const Dashboard = ({ isAdmin, onLogout }) => {
     '#ee538b'  // Rose
   ];
 
-  // Sunburst color families (for 3-level nested chart)
-  const sunburstColorFamilies = [
-    { base: '#c23531', name: 'Red' },      // Red family for Pool 1
-    { base: '#2f4554', name: 'Blue' },     // Blue family for Pool 2
-    { base: '#61a0a8', name: 'Green' },    // Green family for Pool 3
-    { base: '#d48265', name: 'Orange' }    // Orange family for Pool 4
-  ];
 
-  // Helper function to generate color shades
-  const generateColorShades = (baseColor, count, lightnessRange = [0.3, 0.9]) => {
-    // Convert hex to RGB
-    const r = parseInt(baseColor.slice(1, 3), 16);
-    const g = parseInt(baseColor.slice(3, 5), 16);
-    const b = parseInt(baseColor.slice(5, 7), 16);
-    
-    const shades = [];
-    for (let i = 0; i < count; i++) {
-      const lightness = lightnessRange[0] + (lightnessRange[1] - lightnessRange[0]) * (i / Math.max(1, count - 1));
-      const nr = Math.round(r + (255 - r) * lightness);
-      const ng = Math.round(g + (255 - g) * lightness);
-      const nb = Math.round(b + (255 - b) * lightness);
-      shades.push(`rgb(${nr}, ${ng}, ${nb})`);
-    }
-    return shades;
-  };
 
   // ============================================================================
   // CAPACITY SUNBURST CHART (Total SAN Capacity Breakdown)
@@ -377,15 +353,15 @@ const Dashboard = ({ isAdmin, onLogout }) => {
           sort: null,
           highlightPolicy: 'ancestor',
           itemStyle: {
-            borderWidth: 3,
+            borderWidth: 2,  // Match Layer 4 border width
             borderColor: '#fff'
           },
           emphasis: {
-            focus: 'ancestor',
+            focus: 'descendant',  // Highlight all children when hovering parent (matches Layer 4 behavior)
             itemStyle: {
               shadowBlur: 10,
               shadowColor: 'rgba(0, 0, 0, 0.5)',
-              borderWidth: 4,
+              borderWidth: 3,  // Match Layer 4 border width on hover
               borderColor: '#fff'
             }
           },
@@ -473,130 +449,7 @@ const Dashboard = ({ isAdmin, onLogout }) => {
     };
   };
 
-  // ============================================================================
-  // INDIVIDUAL POOL SUNBURST CHARTS (2-Level: Child Pools → Tenants)
-  // Creates separate sunburst chart for each pool
-  // Dynamic count based on number of pools in data
-  // ============================================================================
-  const getIndividualPoolSunburstOptions = () => {
-    if (level !== 'pools' || !data.sunburst_data || !Array.isArray(data.sunburst_data)) {
-      return [];
-    }
 
-    return data.sunburst_data.map((pool, poolIdx) => {
-      const colorFamily = sunburstColorFamilies[poolIdx % sunburstColorFamilies.length];
-      const baseColor = colorFamily.base;
-
-      // Color assignment for child pools and tenants
-      const coloredChildren = pool.children.map((childPool, cpIdx) => {
-        // Child pool level: medium shades
-        const childPoolShades = generateColorShades(baseColor, pool.children.length, [0.4, 0.6]);
-        const childPoolColor = childPoolShades[cpIdx];
-        
-        // Check if this is a Buffer child pool (has empty children array)
-        if (!childPool.children || childPool.children.length === 0) {
-          // Buffer: Keep empty children array (no third layer)
-          return {
-            ...childPool,
-            itemStyle: { color: childPoolColor },
-            children: []  // Explicitly keep empty for visual gap
-          };
-        }
-        
-        // Non-Buffer: Apply tenant colors
-        const tenantShades = generateColorShades(baseColor, childPool.children.length, [0.7, 0.9]);
-        
-        return {
-          ...childPool,
-          itemStyle: { color: childPoolColor },
-          children: childPool.children.map((tenant, tIdx) => ({
-            ...tenant,
-            itemStyle: { color: tenantShades[tIdx % tenantShades.length] }
-          }))
-        };
-      });
-
-      return {
-        poolName: pool.name,
-        option: {
-          backgroundColor: 'transparent',
-          title: {
-            text: pool.name,
-            left: 'center',
-            top: 10,
-            textStyle: {
-              fontSize: 16,
-              fontWeight: 'bold'
-            }
-          },
-          tooltip: {
-            trigger: 'item',
-            formatter: (params) => {
-              const valueInTB = (params.value / 1000).toFixed(2);
-              const valueInGB = params.value.toFixed(2);
-              return `${params.name}<br/>Capacity: ${formatNumber(parseFloat(valueInTB))} TB (${formatNumber(parseFloat(valueInGB))} GB)`;
-            }
-          },
-          series: [
-            {
-              type: 'sunburst',
-              data: coloredChildren,  // Direct children, no pool wrapper
-              radius: ['15%', '90%'],
-              center: ['50%', '55%'],
-              sort: null,
-              highlightPolicy: 'ancestor',
-              itemStyle: {
-                borderWidth: 2,
-                borderColor: '#fff'
-              },
-              emphasis: {
-                focus: 'ancestor',
-                itemStyle: {
-                  shadowBlur: 10,
-                  shadowColor: 'rgba(0, 0, 0, 0.5)',
-                  borderWidth: 3,
-                  borderColor: '#fff'
-                }
-              },
-              label: {
-                show: true,
-                formatter: (params) => {
-                  return params.name;
-                },
-                fontSize: 11,
-                fontWeight: 'bold',
-                color: '#fff',
-                textBorderColor: 'rgba(0, 0, 0, 0.5)',
-                textBorderWidth: 2
-              },
-              levels: [
-                {},  // Root level (not visible)
-                {
-                  // Layer 1: Child Pools (inner ring)
-                  r0: '15%',
-                  r: '50%',
-                  label: {
-                    rotate: 0,
-                    fontSize: 12,
-                    fontWeight: 'bold'
-                  }
-                },
-                {
-                  // Layer 2: Tenants (outer ring)
-                  r0: '50%',
-                  r: '90%',
-                  label: {
-                    rotate: 0,
-                    fontSize: 10
-                  }
-                }
-              ]
-            }
-          ]
-        }
-      };
-    });
-  };
 
   // ============================================================================
   // DONUT CHART CONFIGURATION
@@ -988,10 +841,9 @@ const Dashboard = ({ isAdmin, onLogout }) => {
     }));
   }
 
-  // Use sunburst charts for pools level, donut for other levels
+  // Use sunburst chart for pools level Layer 2, donut chart for all levels
   const capacitySunburstOption = level === 'pools' ? getCapacitySunburstOption() : null;
-  const individualPoolSunbursts = level === 'pools' ? getIndividualPoolSunburstOptions() : [];
-  const donutOption = level !== 'pools' ? getDonutChartOption(level) : null;
+  const donutOption = getDonutChartOption(level);  // Apply to ALL levels
   const barOption = getBarChartOption();
 
   // ============================================================================
@@ -1227,32 +1079,9 @@ const Dashboard = ({ isAdmin, onLogout }) => {
       )}
       
       {/* ======================================================================
-          LAYER 3: INDIVIDUAL POOL SUNBURST CHARTS (Dynamic Grid)
+          LAYER 3: DONUT CHART (All Levels)
           ====================================================================== */}
-      {/* Pools Level: Show individual sunburst chart for each pool */}
-      {level === 'pools' && individualPoolSunbursts.length > 0 && (
-        <div style={{ 
-          marginBottom: '20px', 
-          display: 'grid', 
-          gridTemplateColumns: individualPoolSunbursts.length === 1 ? '1fr' 
-            : individualPoolSunbursts.length === 2 ? '1fr 1fr' 
-            : individualPoolSunbursts.length === 3 ? '1fr 1fr 1fr'
-            : '1fr 1fr',  // For 4+ pools, use 2 columns
-          gap: '20px' 
-        }}>
-          {individualPoolSunbursts.map((poolChart, idx) => (
-            <Tile key={idx}>
-              <ReactECharts 
-                option={poolChart.option} 
-                style={{ height: '500px', width: '100%' }}
-                opts={{ renderer: 'svg' }}
-              />
-            </Tile>
-          ))}
-        </div>
-      )}
-      
-      {/* Other Levels: Show donut chart */}
+      {/* Show donut chart for ALL drill levels */}
       {donutOption && (
         <div style={{ marginBottom: '20px' }}>
           <Tile>
