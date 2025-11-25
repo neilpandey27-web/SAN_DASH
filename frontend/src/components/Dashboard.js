@@ -241,8 +241,7 @@ const Dashboard = ({ isAdmin, onLogout }) => {
   // CAPACITY SUNBURST CHART (Total Capacity Breakdown for All Levels)
   // Center: Total Capacity (varies by level)
   // Layer 1 (Inner): Available Buffer + Allocated
-  // Layer 2 (Middle): Allocated → Utilized + Unutilized (Buffer has no Layer 2)
-  // Layer 3 (Outer): Detail layer on top of Utilized/Unutilized (Buffer has gap)
+  // Layer 2 (Middle): Breakdown by entities (Pools/Child Pools/Tenants/Volumes)
   // Works for: pools, child_pools, tenants, volumes
   // ============================================================================
   const getCapacitySunburstOption = () => {
@@ -254,8 +253,6 @@ const Dashboard = ({ isAdmin, onLogout }) => {
     const totalCapacityGB = summaryData.total_capacity * (unit === 'TB' ? 1000 : unit === 'GB' ? 1 : 1000000);
     const availableBufferGB = summaryData.available_buffer * (unit === 'TB' ? 1000 : unit === 'GB' ? 1 : 1000000);
     const allocatedGB = summaryData.allocated * (unit === 'TB' ? 1000 : unit === 'GB' ? 1 : 1000000);
-    const utilizedGB = summaryData.utilized * (unit === 'TB' ? 1000 : unit === 'GB' ? 1 : 1000000);
-    const unutilizedGB = summaryData.unutilized * (unit === 'TB' ? 1000 : unit === 'GB' ? 1 : 1000000);
 
     // Dynamic center name based on drill level
     let centerName = 'Total SAN Capacity';
@@ -267,61 +264,64 @@ const Dashboard = ({ isAdmin, onLogout }) => {
       centerName = `${data.breadcrumb?.tenant || 'Tenant'} Capacity`;
     }
 
+    // Build entity breakdown for Layer 2 (outer ring)
+    let entityChildren = [];
+    
+    // Color palette for entities
+    const entityColors = [
+      '#8a3ffc', '#ff7eb6', '#fa4d56', '#24a148', '#f1c21b', 
+      '#007d79', '#d12771', '#8a3800', '#33b1ff', '#ee538b',
+      '#ba4e00', '#d4bbff', '#009d9a', '#005d5d', '#570408'
+    ];
+
+    if (level === 'pools' && data.pools && Array.isArray(data.pools)) {
+      // Pools level: Break down by Pool
+      entityChildren = data.pools.map((pool, idx) => ({
+        name: pool.pool || 'Unknown',
+        value: (pool.allocated_tb || 0) * 1000,  // Convert to GB
+        itemStyle: { color: entityColors[idx % entityColors.length] }
+      }));
+    } else if (level === 'child_pools' && data.data && Array.isArray(data.data)) {
+      // Child Pools level: Break down by Child Pool
+      entityChildren = data.data.map((cp, idx) => ({
+        name: cp.child_pool || 'Unknown',
+        value: (cp.allocated_tb || 0) * 1000,  // Convert to GB
+        itemStyle: { color: entityColors[idx % entityColors.length] }
+      }));
+    } else if (level === 'tenants' && data.data && Array.isArray(data.data)) {
+      // Tenants level: Break down by Tenant
+      entityChildren = data.data.map((tenant, idx) => ({
+        name: tenant.name || 'Unknown',
+        value: tenant.allocated_gb || 0,
+        itemStyle: { color: entityColors[idx % entityColors.length] }
+      }));
+    } else if (level === 'volumes' && data.data && Array.isArray(data.data)) {
+      // Volumes level: Break down by Volume
+      entityChildren = data.data.map((volume, idx) => ({
+        name: volume.volume || 'Unknown',
+        value: volume.volume_size_gb || 0,
+        itemStyle: { color: entityColors[idx % entityColors.length] }
+      }));
+    }
+
+    // Combine buffer and entities into single layer (no center node)
     const capacityData = [
       {
-        name: centerName,
-        value: totalCapacityGB,
-        itemStyle: { color: '#525252' },
-        children: [
-          {
-            name: 'Available Buffer',
-            value: availableBufferGB,
-            itemStyle: { color: '#a8a8a8' },  // Gray for buffer
-            children: []  // No Layer 2 or Layer 3 - creates visual gap
-          },
-          {
-            name: 'Allocated',
-            value: allocatedGB,
-            itemStyle: { color: '#0f62fe' },  // Blue for allocated
-            children: [
-              {
-                name: 'Utilized',
-                value: utilizedGB,
-                itemStyle: { color: '#0043ce' },  // Dark blue for Layer 2
-                children: [
-                  {
-                    name: 'Utilized Detail',
-                    value: utilizedGB,
-                    itemStyle: { color: '#002d9c' }  // Even darker blue for Layer 3
-                  }
-                ]
-              },
-              {
-                name: 'Unutilized',
-                value: unutilizedGB,
-                itemStyle: { color: '#78a9ff' },  // Light blue for Layer 2
-                children: [
-                  {
-                    name: 'Unutilized Detail',
-                    value: unutilizedGB,
-                    itemStyle: { color: '#a6c8ff' }  // Even lighter blue for Layer 3
-                  }
-                ]
-              }
-            ]
-          }
-        ]
-      }
+        name: 'Available Buffer',
+        value: availableBufferGB,
+        itemStyle: { color: '#a8a8a8' }  // Gray for buffer
+      },
+      ...entityChildren  // Add all entity breakdowns
     ];
 
     // Dynamic title based on drill level
     let titleText = 'Total SAN Capacity Breakdown';
     if (level === 'child_pools') {
-      titleText = `${data.breadcrumb?.pool || 'Pool'} - Capacity Breakdown`;
+      titleText = `${data.breadcrumb?.pool || 'Pool'} - Total Capacity Breakdown`;
     } else if (level === 'tenants') {
-      titleText = `${data.breadcrumb?.child_pool || 'Child Pool'} - Capacity Breakdown`;
+      titleText = `${data.breadcrumb?.child_pool || 'Child Pool'} - Total Capacity Breakdown`;
     } else if (level === 'volumes') {
-      titleText = `${data.breadcrumb?.tenant || 'Tenant'} - Capacity Breakdown`;
+      titleText = `${data.breadcrumb?.tenant || 'Tenant'} - Total Capacity Breakdown`;
     }
 
     return {
@@ -341,16 +341,14 @@ const Dashboard = ({ isAdmin, onLogout }) => {
           const valueInTB = (params.value / 1000).toFixed(2);
           const valueInGB = params.value.toFixed(2);
           const percentage = ((params.value / totalCapacityGB) * 100).toFixed(1);
-          // Don't show "Detail" in tooltip
-          const displayName = params.name.replace(' Detail', '');
-          return `${displayName}<br/>Capacity: ${formatNumber(parseFloat(valueInTB))} TB (${formatNumber(parseFloat(valueInGB))} GB)<br/>Percentage: ${percentage}%`;
+          return `${params.name}<br/>Capacity: ${formatNumber(parseFloat(valueInTB))} TB (${formatNumber(parseFloat(valueInGB))} GB)<br/>Percentage: ${percentage}%`;
         }
       },
       series: [
         {
           type: 'sunburst',
           data: capacityData,
-          radius: ['15%', '90%'],
+          radius: [0, '55%'],  // No inner hole, single ring from center
           center: ['50%', '55%'],
           sort: null,
           highlightPolicy: 'ancestor',
@@ -369,80 +367,47 @@ const Dashboard = ({ isAdmin, onLogout }) => {
           },
           label: {
             show: true,
+            position: 'outside',  // Position labels outside with connector lines
             formatter: (params) => {
-              if (params.depth === 0) {
-                // Center label: Total SAN Capacity
-                return `{center|${params.name}}\n{value|${formatNumber(convertValue(params.value / 1000, 'TB'))} ${getUnit()}}`;
-              }
-              // Don't show "Detail" in labels - just show parent name
-              if (params.name.includes('Detail')) {
-                return '';  // Hide detail layer labels
-              }
               return params.name;
             },
             fontSize: 12,
             fontWeight: 'bold',
-            color: '#fff',
-            textBorderColor: 'rgba(0, 0, 0, 0.5)',
-            textBorderWidth: 2,
-            rich: {
-              center: {
-                fontSize: 16,
-                fontWeight: 'bold',
-                color: '#fff'
-              },
-              value: {
-                fontSize: 14,
-                fontWeight: 'bold',
-                color: '#fff'
-              }
+            color: '#161616'  // Dark color for outside labels
+          },
+          labelLine: {
+            show: true,
+            length: 39,   // First segment length from ring edge (30 * 1.3 = 39)
+            length2: 26,  // Second segment length (horizontal part) (20 * 1.3 = 26)
+            smooth: false,
+            lineStyle: {
+              width: 2,
+              color: '#525252'
             }
           },
           levels: [
             {
-              // Center: Total SAN Capacity
+              // Single ring: Available Buffer + Entity breakdown (Pools/Child Pools/Tenants/Volumes)
               r0: 0,
-              r: '15%',
+              r: '55%',
               label: {
-                position: 'inside',
-                fontSize: 14,
-                fontWeight: 'bold',
-                color: '#fff'
-              }
-            },
-            {
-              // Layer 1: Available Buffer + Allocated
-              r0: '15%',
-              r: '45%',
-              label: {
-                rotate: 0,
-                fontSize: 14,
-                fontWeight: 'bold',
-                formatter: (params) => {
-                  const valueInTB = (params.value / 1000).toFixed(2);
-                  return `${params.name}\n${formatNumber(parseFloat(valueInTB))} ${getUnit()}`;
-                }
-              }
-            },
-            {
-              // Layer 2: Utilized + Unutilized (middle ring with labels)
-              r0: '45%',
-              r: '70%',
-              label: {
+                position: 'outside',  // Position labels outside
                 rotate: 0,
                 fontSize: 12,
+                fontWeight: 'bold',
+                color: '#161616',
                 formatter: (params) => {
-                  const valueInTB = (params.value / 1000).toFixed(2);
-                  return `${params.name}\n${formatNumber(parseFloat(valueInTB))} ${getUnit()}`;
+                  // Show entity name only
+                  return params.name;
                 }
-              }
-            },
-            {
-              // Layer 3: Detail layer (outer ring, no labels)
-              r0: '70%',
-              r: '90%',
-              label: {
-                show: false  // Hide labels for detail layer
+              },
+              labelLine: {
+                show: true,  // Show connector lines
+                length: 39,   // 30% longer (30 * 1.3 = 39)
+                length2: 26,  // 30% longer (20 * 1.3 = 26)
+                lineStyle: {
+                  width: 2
+                }
               }
             }
           ]
