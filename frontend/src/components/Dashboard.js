@@ -233,26 +233,7 @@ const Dashboard = ({ isAdmin, onLogout }) => {
     };
   }
 
-  // ============================================================================
-  // COLOR PALETTES
-  // ============================================================================
-  // Outer ring colors (Utilized/Unutilized)
-  const outerUtilizedColor = '#0f62fe';
-  const outerUnutilizedColor = '#e0e0e0';
-  
-  // Inner ring colors (Pools/Child Pools/Tenants/Volumes breakdown)
-  const innerRingColors = [
-    '#8a3ffc', // Purple
-    '#ff7eb6', // Pink
-    '#fa4d56', // Red
-    '#24a148', // Green
-    '#f1c21b', // Yellow
-    '#007d79', // Teal
-    '#d12771', // Magenta
-    '#8a3800', // Brown
-    '#33b1ff', // Light Blue (different from outer blue)
-    '#ee538b'  // Rose
-  ];
+
 
 
 
@@ -451,211 +432,7 @@ const Dashboard = ({ isAdmin, onLogout }) => {
 
 
 
-  // ============================================================================
-  // DONUT CHART CONFIGURATION
-  // v5.6 CHANGE: Exclude "Lab Engineering" from charts
-  // ============================================================================
-  const getDonutChartOption = (levelType) => {
-    let outerData = [];
-    let innerDataItems = [];
-    let titleText = '';
 
-    // ------------------------------------------------------------------------
-    // DATA PREPARATION FOR EACH DRILL LEVEL (EXCLUDE Lab Engineering)
-    // ------------------------------------------------------------------------
-    if (levelType === 'pools' && data.pools && Array.isArray(data.pools)) {
-      // Backend already filters out Lab Engineering
-      const totalAllocated = data.pools.reduce((sum, p) => sum + (p.allocated_tb || 0), 0);
-      const totalUtilized = data.pools.reduce((sum, p) => sum + (p.utilized_tb || 0), 0);
-      const totalUnutilized = totalAllocated - totalUtilized;
-
-      outerData = [
-        { name: 'Utilized', value: convertValue(totalUtilized, 'TB'), itemStyle: { color: outerUtilizedColor } },
-        { name: 'Unutilized', value: convertValue(totalUnutilized, 'TB'), itemStyle: { color: outerUnutilizedColor } }
-      ];
-
-      innerDataItems = data.pools.map((p, idx) => ({
-        name: p.pool || 'Unknown',
-        value: convertValue(p.utilized_tb || 0, 'TB'),
-        itemStyle: { color: innerRingColors[idx % innerRingColors.length] }
-      }));
-
-      titleText = 'Pool Utilization Distribution';
-    } else if (levelType === 'child_pools' && data.data && Array.isArray(data.data)) {
-      // Lab Engineering already filtered at pool level, use all child pools
-      const totalAllocated = data.data.reduce((sum, p) => sum + (p.allocated_tb || 0), 0);
-      const totalUtilized = data.data.reduce((sum, p) => sum + (p.utilized_tb || 0), 0);
-      const totalUnutilized = totalAllocated - totalUtilized;
-
-      outerData = [
-        { name: 'Utilized', value: convertValue(totalUtilized, 'TB'), itemStyle: { color: outerUtilizedColor } },
-        { name: 'Unutilized', value: convertValue(totalUnutilized, 'TB'), itemStyle: { color: outerUnutilizedColor } }
-      ];
-
-      innerDataItems = data.data.map((cp, idx) => ({
-        name: cp.child_pool || 'Unknown',
-        value: convertValue(cp.utilized_tb || 0, 'TB'),
-        itemStyle: { color: innerRingColors[idx % innerRingColors.length] }
-      }));
-
-      titleText = 'Child Pool Utilization Distribution';
-    } else if (levelType === 'tenants' && data.data && Array.isArray(data.data)) {
-      // Lab Engineering already filtered at pool level, use all tenants
-      const totalAllocated = data.data.reduce((sum, t) => sum + (t.allocated_gb || 0), 0);
-      const totalUtilized = data.data.reduce((sum, t) => sum + (t.utilized_gb || 0), 0);
-      const totalUnutilized = totalAllocated - totalUtilized;
-
-      outerData = [
-        { name: 'Utilized', value: convertValue(totalUtilized, 'GB'), itemStyle: { color: outerUtilizedColor } },
-        { name: 'Unutilized', value: convertValue(totalUnutilized, 'GB'), itemStyle: { color: outerUnutilizedColor } }
-      ];
-
-      innerDataItems = data.data.map((t, idx) => ({
-        name: t.name || 'Unknown',
-        value: convertValue(t.utilized_gb || 0, 'GB'),
-        itemStyle: { color: innerRingColors[idx % innerRingColors.length] }
-      }));
-
-      titleText = 'Tenant Utilization Distribution';
-    } else if (levelType === 'volumes' && data.data && Array.isArray(data.data)) {
-      // Lab Engineering already filtered at pool level, use all volumes
-      const totalAllocated = data.data.reduce((sum, v) => sum + (v.volume_size_gb || 0), 0);
-      const totalUtilized = data.data.reduce((sum, v) => sum + (v.utilized_gb || 0), 0);
-      const totalUnutilized = totalAllocated - totalUtilized;
-
-      outerData = [
-        { name: 'Utilized', value: convertValue(totalUtilized, 'GB'), itemStyle: { color: outerUtilizedColor } },
-        { name: 'Unutilized', value: convertValue(totalUnutilized, 'GB'), itemStyle: { color: outerUnutilizedColor } }
-      ];
-
-      innerDataItems = data.data.map((v, idx) => ({
-        name: v.volume || 'Unknown',
-        value: convertValue(v.utilized_gb || 0, 'GB'),
-        itemStyle: { color: innerRingColors[idx % innerRingColors.length] }
-      }));
-
-      titleText = 'Volume Utilization Distribution';
-    }
-
-    if (outerData.length === 0) return null;
-
-    // ------------------------------------------------------------------------
-    // ECHARTS CONFIGURATION
-    // ------------------------------------------------------------------------
-    return {
-      backgroundColor: 'transparent',
-      title: {
-        text: titleText,
-        left: 'center',
-        top: 10,
-        textStyle: {
-          fontSize: 16,
-          fontWeight: 'bold'
-        }
-      },
-      tooltip: {
-        trigger: 'item',
-        formatter: (params) => {
-          const percentage = params.percent.toFixed(1);
-          return `${params.name}: ${formatNumber(params.value)} ${getUnit()} (${percentage}%)`;
-        }
-      },
-      series: [
-        // --------------------------------------------------------------------
-        // INNER RING (Breakdown: Pools/Child Pools/Tenants/Volumes)
-        // --------------------------------------------------------------------
-        {
-          name: 'Breakdown',
-          type: 'pie',
-          radius: ['15%', '35%'],        // 15% hole in center, 35% outer edge
-          center: ['50%', '55%'],         // Chart center position
-          avoidLabelOverlap: true,        // Enable label collision detection
-          minAngle: 3,                    // Hide labels for segments < 3 degrees
-          zlevel: 2,                      // Render on top of outer ring
-          label: {
-            show: true,
-            position: 'outside',
-            distanceToLabelLine: 5,       // Distance from connector line end
-            formatter: (params) => {
-              // Show absolute value instead of percentage
-              return `{name|${params.name}}\n{value|${formatNumber(params.value)} ${getUnit()}}`;
-            },
-            rich: {
-              name: {
-                fontSize: 12,             // INNER RING LABEL FONT SIZE
-                fontWeight: 'bold',
-                color: '#161616'
-              },
-              value: {
-                fontSize: 12,             // INNER RING VALUE FONT SIZE
-                fontWeight: 'bold',
-                color: '#161616'
-              }
-            }
-          },
-          labelLine: {
-            show: true,
-            length: 65,                   // INNER RING: First segment length
-            length2: 25,                  // INNER RING: Second segment length
-            lineStyle: {
-              width: 3                    // INNER RING: Connector line thickness
-            }
-          },
-          labelLayout: {
-            hideOverlap: true,            // Automatically hide overlapping labels
-            moveOverlap: 'shiftY'         // Shift labels vertically to avoid overlap
-          },
-          data: innerDataItems
-        },
-        // --------------------------------------------------------------------
-        // OUTER RING (Overall: Utilized/Unutilized)
-        // --------------------------------------------------------------------
-        {
-          name: 'Overall',
-          type: 'pie',
-          radius: ['40%', '55%'],         // 40% inner edge, 55% outer edge
-          center: ['50%', '55%'],         // Chart center position
-          avoidLabelOverlap: true,        // Enable label collision detection
-          minAngle: 5,                    // Hide labels for segments < 5 degrees
-          zlevel: 1,                      // Render behind inner ring
-          label: {
-            show: true,
-            position: 'outside',
-            distanceToLabelLine: 5,       // Distance from connector line end
-            formatter: (params) => {
-              // Show absolute value instead of percentage
-              return `{name|${params.name}}\n{value|${formatNumber(params.value)} ${getUnit()}}`;
-            },
-            rich: {
-              name: {
-                fontSize: 14,             // OUTER RING LABEL FONT SIZE
-                fontWeight: 'bold',
-                color: '#161616'
-              },
-              value: {
-                fontSize: 14,             // OUTER RING VALUE FONT SIZE
-                fontWeight: 'bold',
-                color: '#161616'
-              }
-            }
-          },
-          labelLine: {
-            show: true,
-            length: 40,                   // OUTER RING: First segment length
-            length2: 25,                  // OUTER RING: Second segment length
-            lineStyle: {
-              width: 3                    // OUTER RING: Connector line thickness
-            }
-          },
-          labelLayout: {
-            hideOverlap: true,            // Automatically hide overlapping labels
-            moveOverlap: 'shiftY'         // Shift labels vertically to avoid overlap
-          },
-          data: outerData
-        }
-      ]
-    };
-  };
 
   // ============================================================================
   // BAR CHART CONFIGURATION (Top 10 Tenants)
@@ -841,9 +618,8 @@ const Dashboard = ({ isAdmin, onLogout }) => {
     }));
   }
 
-  // Use sunburst chart for pools level Layer 2, donut chart for all levels
+  // Use sunburst chart for pools level Layer 2
   const capacitySunburstOption = level === 'pools' ? getCapacitySunburstOption() : null;
-  const donutOption = getDonutChartOption(level);  // Apply to ALL levels
   const barOption = getBarChartOption();
 
   // ============================================================================
@@ -1078,21 +854,7 @@ const Dashboard = ({ isAdmin, onLogout }) => {
         </div>
       )}
       
-      {/* ======================================================================
-          LAYER 3: DONUT CHART (All Levels)
-          ====================================================================== */}
-      {/* Show donut chart for ALL drill levels */}
-      {donutOption && (
-        <div style={{ marginBottom: '20px' }}>
-          <Tile>
-            <ReactECharts 
-              option={donutOption} 
-              style={{ height: '700px', width: '100%' }}
-              opts={{ renderer: 'svg' }}
-            />
-          </Tile>
-        </div>
-      )}
+
 
       {/* ======================================================================
           DATA TABLE (Pools, Child Pools, Tenants, or Volumes)
